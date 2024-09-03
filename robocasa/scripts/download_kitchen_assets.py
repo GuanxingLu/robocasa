@@ -34,12 +34,12 @@ DOWNLOAD_ASSET_REGISTRY = dict(
         folder=os.path.join(robocasa.__path__[0], "models/assets/objects/aigen_objs"),
         check_folder_exists=False,
     ),
-    generative_textures=dict(
-        message="Downloading AI-generated environment textures",
-        url="https://utexas.box.com/shared/static/gf9nkadvfrowkb9lmkcx58jwt4d6c1g3.zip",
-        folder=os.path.join(robocasa.__path__[0], "models/assets/generative_textures"),
-        check_folder_exists=False,
-    ),
+    # generative_textures=dict(
+    #     message="Downloading AI-generated environment textures",
+    #     url="https://utexas.box.com/shared/static/gf9nkadvfrowkb9lmkcx58jwt4d6c1g3.zip",
+    #     folder=os.path.join(robocasa.__path__[0], "models/assets/generative_textures"),
+    #     check_folder_exists=False,
+    # ),
 )
 
 
@@ -146,7 +146,7 @@ def download_and_extract_zip(
             return
     
     download_success = False
-    for i in range(3):
+    for i in range(1):
         try:
             download_url(
                 url=url,

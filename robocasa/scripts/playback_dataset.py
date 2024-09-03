@@ -94,10 +94,17 @@ def playback_trajectory_with_env(
 
         # video render
         if write_video:
+            if env.viewer is None:
+                env.initialize_renderer()
+
             if video_count % video_skip == 0:
                 video_img = []
                 for cam_name in camera_names:
-                    video_img.append(env.render(mode="rgb_array", height=512, width=512, camera_name=cam_name))
+                    # video_img.append(env.render(mode="rgb_array", height=512, width=512, camera_name=cam_name))
+                    # HACK: we only have one camera "robot0_agentview_center"
+                    # video_img.append(env.render())
+                    video_img.append(env.sim.render(mode="offscreen", height=512, width=512, camera_name=cam_name))
+
                 video_img = np.concatenate(video_img, axis=1) # concatenate horizontally
                 video_writer.append_data(video_img)
             video_count += 1
@@ -244,10 +251,11 @@ def reset_to(env, state):
     return None
 
 
-def playback_dataset(args):
+def playback_dataset(args, write_video=False):
     # some arg checking
     # write_video = True #(args.video_path is not None)
-    write_video = False
+    write_video = (args.video_path is not None)
+
     if args.video_path is None:
         args.video_path = args.dataset.split(".hdf5")[0] + ".mp4"
         if args.use_actions:
@@ -288,7 +296,8 @@ def playback_dataset(args):
         env_kwargs = env_meta["env_kwargs"]
         env_kwargs["has_renderer"] = False
         env_kwargs["renderer"] = "mjviewer"
-        env_kwargs["has_offscreen_renderer"] = False #write_video
+        # env_kwargs["has_offscreen_renderer"] = False #write_video
+        env_kwargs["has_offscreen_renderer"] = write_video
         env_kwargs["use_camera_obs"] = False
 
         if args.verbose:
@@ -330,17 +339,18 @@ def playback_dataset(args):
     
     # maybe reduce the number of demonstrations to playback
     if args.n is not None:
-        # if not args.dont_shuffle_demos:
-        #     random.shuffle(demos)
-        random.shuffle(demos)
+        if not args.dont_shuffle_demos:
+            random.shuffle(demos)
+        # random.shuffle(demos)
         demos = demos[:args.n]
 
-    # maybe dump video
-    video_writer = None
-    if write_video:
-        video_writer = imageio.get_writer(args.video_path, fps=20)
-
     for ind in range(len(demos)):
+        # maybe dump video
+        video_writer = None
+        if write_video:
+            video_path = args.video_path.replace(".mp4", "_{}.mp4".format(ind))
+            video_writer = imageio.get_writer(video_path, fps=20)
+
         ep = demos[ind]
         print(colored("Playing back episode: {}".format(ep), "yellow"))
 
@@ -380,10 +390,15 @@ def playback_dataset(args):
             first=args.first,
             verbose=args.verbose,
         )
+        if write_video:
+
+            # TODO: flip each image recorded in the video_writer to be upright
+            # this is necessary because mujoco renders images upside down
+
+            print(colored("Wrote video to: {}".format(video_path), "green"))
+            video_writer.close()
 
     f.close()
-    if write_video:
-        video_writer.close()
 
     if env is not None:
         env.close()
@@ -475,6 +490,12 @@ if __name__ == "__main__":
         "--verbose",
         action='store_true',
         help="log additional information",
+    )
+
+    parser.add_argument(
+        "--dont_shuffle_demos",
+        action='store_true',
+        help="used if args.n is specified",
     )
 
     args = parser.parse_args()

@@ -13,7 +13,7 @@ import json
 import os
 import time
 from glob import glob
-from termcolor import colored
+from termcolor import colored, cprint
 
 import h5py
 import numpy as np
@@ -194,6 +194,152 @@ def collect_human_trajectory(
     return ep_directory, discard_traj
 
 
+def collect_full_scan(
+    env, device, arm, env_configuration, mirror_actions,
+    render=True, max_fr=None,
+    print_info=True,
+):
+    """
+    Use the device (keyboard or SpaceNav 3D mouse) to collect a demonstration.
+    The rollout trajectory is saved to files in npz format.
+    Modify the DataCollectionWrapper wrapper to add new fields or change data formats.
+
+    Args:
+        env (MujocoEnv): environment to control
+        device (Device): to receive controls from the device
+        arms (str): which arm to control (eg bimanual) 'right' or 'left'
+        env_configuration (str): specified environment configuration
+    """
+
+    env.reset()
+
+    ep_meta = env.get_ep_meta()
+    # print(json.dumps(ep_meta, indent=4))
+    lang = ep_meta.get("lang", None)
+    if print_info and lang is not None:
+        print(colored(f"Instruction: {lang}", "green"))
+
+    # degugging: code block here to quickly test and close env
+    # env.close()
+    # return None, True
+
+    if render:
+        # ID = 2 always corresponds to agentview
+        env.render()
+
+    task_completion_hold_count = -1  # counter to collect 10 timesteps after reaching goal
+    device.start_control()
+
+    nonzero_ac_seen = False
+
+    # Set active robot
+    active_robot = env.robots[0] if env_configuration == "bimanual" else env.robots[arm == "left"]
+
+    if active_robot.is_mobile:
+        zero_action = np.array([0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1])
+    else:
+        zero_action = np.array([0, 0, 0, 0, 0, 0, -1])
+    for _ in range(1):
+        # do a dummy step thru base env to initalize things, but don't record the step
+        if isinstance(env, DataCollectionWrapper):
+            env.env.step(zero_action)
+        else:
+            env.step(zero_action)
+
+    discard_traj = False
+
+    # Loop until we get a reset from the input or the task completes
+    while True:
+        start = time.time()
+
+        # Get the newest action
+        input_action, _ = input2action(
+            device=device,
+            robot=active_robot,
+            active_arm=arm,
+            env_configuration=env_configuration,
+            mirror_actions=mirror_actions,
+        )
+
+        # If action is none, then this a reset so we should break
+        if input_action is None:
+            # discard_traj = True   # HACK: here we rewrite the 'reset' action to 'save'
+            break
+
+        if is_empty_input_spacemouse(input_action):
+            if not nonzero_ac_seen:
+                if render:
+                    env.render()
+                continue
+        else:
+            nonzero_ac_seen = True
+
+        if env.robots[0].is_mobile:
+            arm_actions = input_action[:6]
+            # arm_actions = np.concatenate([arm_actions, ])
+
+            # flip some actions
+            arm_actions[0], arm_actions[1] = arm_actions[1], -arm_actions[0]
+            arm_actions[3], arm_actions[4] = arm_actions[4], -arm_actions[3]
+
+            base_action = input_action[7:10]
+            torso_action = input_action[10:11]
+
+            if np.abs(torso_action[0]) < 0.50:
+                torso_action[:] = 0.0
+
+            # flip some actions
+            base_action[0], base_action[1] = base_action[1], -base_action[0]
+
+            action = np.concatenate((
+                arm_actions,
+                np.repeat(input_action[6:7], env.robots[0].gripper[arm].dof),
+                base_action,
+                torso_action,
+            ))
+            mode_action = input_action[-1]
+
+            env.robots[0].enable_parts(base=True, right=True, left=True, torso=True)
+            if mode_action > 0:
+                action = np.concatenate((action, [1]))
+            else:
+                action = np.concatenate((action, [-1]))
+        else:
+            arm_actions = input_action
+            action = env.robots[0].create_action_vector(
+                {
+                    arm: arm_actions[:-1], 
+                    f"{arm}_gripper": arm_actions[-1:]
+                }
+            )
+
+        # Run environment step
+        obs, _, _, _ = env.step(action)
+        if render:
+            env.render()
+
+        # limit frame rate if necessary
+        if max_fr is not None:
+            elapsed = time.time() - start
+            diff = 1 / max_fr - elapsed
+            if diff > 0:
+                time.sleep(diff)
+
+        # with open("/home/soroushn/tmp/model.xml", "w") as f:
+        #     f.write(env.model.get_xml())
+        # exit()
+
+    if nonzero_ac_seen and hasattr(env, "ep_directory"):
+        ep_directory = env.ep_directory
+    else:
+        ep_directory = None
+        
+    # cleanup for end of data collection episodes
+    env.close()
+
+    return ep_directory, discard_traj
+
+
 def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episodes=None):
     """
     Gathers the demonstrations saved in @directory into a
@@ -330,7 +476,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--controller", type=str, default="OSC_POSE", help="Choice of controller. Can be 'IK_POSE' or 'OSC_POSE'"
     )
-    parser.add_argument("--device", type=str, default="spacemouse", choices=["keyboard", "keyboardmobile", "spacemouse", "dummy"])
+    parser.add_argument("--device", type=str, default="keyboard", choices=["keyboard", "keyboardmobile", "spacemouse", "dummy"])
     parser.add_argument("--pos-sensitivity", type=float, default=4.0, help="How much to scale position user inputs")
     parser.add_argument("--rot-sensitivity", type=float, default=4.0, help="How much to scale rotation user inputs")
     
@@ -347,6 +493,11 @@ if __name__ == "__main__":
     controller_config = load_controller_config(default_controller=args.controller)
 
     env_name = args.environment
+
+    args.layout = 0
+    args.style = 0
+    args.camera = 'robot0_eye_in_hand'  # robot0_agentview_center, robot0_frontview, robot0_eye_in_hand
+    # args.camera = 'robot0_eye_in_hand_no_hand'    # should also set this in robosuite, but I think there should be another way to collect the data with only gripper
 
     # Create argument configuration
     config = {
@@ -436,22 +587,44 @@ if __name__ == "__main__":
         raise ValueError
 
     # make a new timestamped directory
-    new_dir = os.path.join(args.directory, time_str)
+    # new_dir = os.path.join(args.directory, time_str)
+    task_name = 'take_a_walk'
+    new_dir = os.path.join(args.directory, task_name)
+
+    # check if you want to delete the existing folder
+    if os.path.exists(new_dir):
+        ans = input("{} already exists! \noverwrite? (y/n)\n".format(new_dir))
+
+        if ans == "y":
+            print("REMOVING")
+            import shutil
+            shutil.rmtree(new_dir)
+            print("REMOVED")
+        else:
+            exit()
+
     os.makedirs(new_dir)
 
     excluded_eps = []
 
     # collect demonstrations
     while True:
-        print()
-        ep_directory, discard_traj = collect_human_trajectory(
+        cprint(f"Collecting demonstration (you can exit if you do not want to collect another episode) ...", "yellow")
+
+        # ep_directory, discard_traj = collect_human_trajectory(
+        #     env, device, args.arm, args.config, mirror_actions, render=(args.renderer != "mjviewer"),
+        #     max_fr=args.max_fr,
+        # )
+        ep_directory, discard_traj = collect_full_scan(
             env, device, args.arm, args.config, mirror_actions, render=(args.renderer != "mjviewer"),
             max_fr=args.max_fr,
         )
 
-        print("Keep traj?", not discard_traj)
+        cprint(f"Keep traj? {not discard_traj}", "yellow")
         
         if not args.debug:
             if discard_traj and ep_directory is not None:
                 excluded_eps.append(ep_directory.split('/')[-1])
             gather_demonstrations_as_hdf5(tmp_directory, new_dir, env_info, excluded_episodes=excluded_eps)
+
+        cprint(f"Collected demonstration from {ep_directory}", "yellow")

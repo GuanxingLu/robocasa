@@ -89,4 +89,9 @@ CAM_CONFIGS = dict(
         quat=[0, 0.707107, 0.707107, 0],
         parent_body="robot0_right_hand",
     ),
+    # robot0_eye_in_hand_no_hand=dict(
+    #     pos=[0.1, 0, 0],
+    #     quat=[0, 0.707107, 0.707107, 0],
+    #     parent_body="robot0_right_hand",
+    # ),
 )

@@ -65,6 +65,7 @@ if __name__ == "__main__":
     tasks = OrderedDict([
         ("PnPCounterToCab", "pick and place from counter to cabinet"),
         ("PnPCounterToSink", "pick and place from counter to sink"),
+        # ("PnPCounterToSink", "pick and place from sink to counter"),
         ("PnPMicrowaveToCounter", "pick and place from microwave to counter"),
         ("PnPStoveToCounter", "pick and place from stove to counter"),
         ("OpenSingleDoor", "open cabinet or microwave door"),
@@ -77,13 +78,19 @@ if __name__ == "__main__":
         ("RestockPantry", "restock cans in pantry"),
         ("PreSoakPan", "prepare pan for washing"),
         ("PrepareCoffee", "make coffee"),
+        # ("NavigateKitchen", "walk around the kitchen")
     ])
+
+    # args.task = "NavigateKitchen"
 
     while True:
         if args.task is None:
             task = choose_option(tasks, "task", default="PnPCounterToCab", show_keys=True)
+        else:
+            task = args.task
 
         dataset = get_ds_path(task, ds_type="human_raw")
+        # dataset = get_ds_path(task, ds_type="human_im")
 
         if os.path.exists(dataset) is False:
             # download dataset files
@@ -92,18 +99,23 @@ if __name__ == "__main__":
 
         parser = argparse.ArgumentParser()
         parser.dataset = dataset
-        parser.video_path = None
+        parser.video_path = None    # save to dataset path by default
         parser.render = True
         parser.use_actions = False
         parser.render_image_names = ["robot0_agentview_center"]
         parser.use_obs = False
-        parser.n = 1
+        # parser.n = 1  # control the number of episodes
+        parser.n = 3
         parser.filter_key = None
         parser.video_skip = 5
         parser.first = False
         parser.verbose = True
         parser.extend_states = True
+
+        write_video=False
+        if write_video:
+            parser.render = False
         
-        playback_dataset(parser)
+        playback_dataset(parser, write_video=write_video)
         print()
         print()

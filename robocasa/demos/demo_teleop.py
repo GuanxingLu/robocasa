@@ -6,7 +6,7 @@ from termcolor import colored
 
 import robosuite
 from robosuite import load_controller_config
-from robocasa.scripts.collect_demos import collect_human_trajectory
+from robocasa.scripts.collect_demos import collect_human_trajectory, collect_full_scan
 from robosuite.wrappers import VisualizationWrapper
 
 from robocasa.models.arenas.layout_builder import STYLES
@@ -81,6 +81,10 @@ if __name__ == "__main__":
         ("PrepareCoffee", "make coffee"),
     ])
 
+    args.task = "NavigateKitchen"
+    args.layout = 0
+    args.style = 0
+
     styles = OrderedDict()
     for k in sorted(STYLES.keys()):
         styles[k] = STYLES[k]
@@ -105,7 +109,7 @@ if __name__ == "__main__":
         **config,
         has_renderer=(args.renderer != "mjviewer"),
         has_offscreen_renderer=False,
-        render_camera="robot0_frontview",
+        render_camera="robot0_eye_in_hand",   # robot0_agentview_center, robot0_frontview, robot0_eye_in_hand
         ignore_done=True,
         use_camera_obs=False,
         control_freq=20,
@@ -139,4 +143,8 @@ if __name__ == "__main__":
             env, device, "right", "single-arm-opposed", mirror_actions=True, render=(args.renderer != "mjviewer"),
             max_fr=30,
         )
+        # ep_directory, discard_traj = collect_full_scan(
+        #     env, device, "right", "single-arm-opposed", mirror_actions=True, render=(args.renderer != "mjviewer"),
+        #     max_fr=30,
+        # )
         print()

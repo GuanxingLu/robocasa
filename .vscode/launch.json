@@ -1,0 +1,33 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "convert_to_gaussian_format from data",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "robocasa/scripts/convert_to_gaussian_format.py",
+            "console": "integratedTerminal",
+            // "args": [
+            //     "${command:pickArgs}"
+            // ]
+        },
+        {
+            "name": "convert_to_gaussian_format from custom",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "robocasa/scripts/convert_to_gaussian_format.py",
+            "console": "integratedTerminal",
+            "args": [
+            "--dataset", "/mnt/disk_1/guanxing/robocasa/robocasa/models/assets/demonstrations_private/take_a_walk/demo_im512.hdf5"
+            // "--dataset", "/mnt/disk_1/guanxing/robocasa/datasets/v0.1/single_stage/kitchen_pnp/PnPCounterToSink/2024-04-25/demo_im512.hdf5",
+            // "--dataset", "/mnt/disk_1/guanxing/robocasa/datasets/v0.1/single_stage/kitchen_pnp/PnPSinkToCounter/2024-04-26_2/demo_im512.hdf5",
+            // "--dataset", "/mnt/disk_1/guanxing/robocasa/datasets/v0.1/single_stage/kitchen_pnp/PnPSinkToCounter/2024-04-26_2/demo.hdf5",
+            // "--dataset", "/mnt/disk_1/guanxing/robocasa/datasets/v0.1/single_stage/kitchen_pnp/PnPStoveToCounter/2024-05-01/demo_im512.hdf5",
+            // "--camera_names", "['robot0_agentview_left_image', 'robot0_agentview_right_image', 'robot0_eye_in_hand_image']"
+            ]
+        }
+    ]
+}
