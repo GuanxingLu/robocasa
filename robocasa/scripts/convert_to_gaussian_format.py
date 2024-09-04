@@ -31,7 +31,6 @@ Example of images.txt:
 4 0.698777 0.714625 -0.023996 0.021129 -0.048184 0.004529 -0.313427 2 image0004.png
 
 Each image above must have the same image_id (first column) as in the database (next step). This database can be inspected either in the GUI (under Database management > Processing), or, one can create a reconstruction with colmap and later export it as text in order to see the images.txt file it creates.
-
 '''
 
 import os
@@ -47,9 +46,39 @@ from termcolor import colored, cprint
 from robocasa.utils.dataset_registry import get_ds_path
 from tqdm import trange
 import shutil
-
+import open3d as o3d
 
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
+
+def depth2fgpcd(depth, mask, cam_params):
+    # depth: (h, w)
+    # fgpcd: (n, 3)
+    # mask: (h, w)
+    h, w = depth.shape
+    mask = np.logical_and(mask, depth > 0)
+    # mask = (depth <= 0.599/0.8)
+    fgpcd = np.zeros((mask.sum(), 3))
+    fx, fy, cx, cy = cam_params
+    pos_x, pos_y = np.meshgrid(np.arange(w), np.arange(h))
+    pos_x = pos_x[mask]
+    pos_y = pos_y[mask]
+    fgpcd[:, 0] = (pos_x - cx) * depth[mask] / fx
+    fgpcd[:, 1] = (pos_y - cy) * depth[mask] / fy
+    fgpcd[:, 2] = depth[mask]
+    return fgpcd
+
+def np2o3d(pcd, color=None):
+    # pcd: (n, 3)
+    # color: (n, 3)
+    pcd_o3d = o3d.geometry.PointCloud()
+    pcd_o3d.points = o3d.utility.Vector3dVector(pcd)
+    if color is not None:
+        assert pcd.shape[0] == color.shape[0]
+        assert color.max() <= 1
+        assert color.min() >= 0
+        pcd_o3d.colors = o3d.utility.Vector3dVector(color)
+    return pcd_o3d
 
 def convert_to_ply_with_colmap(args):
     if args.dataset is None:
@@ -70,8 +99,8 @@ def convert_to_ply_with_colmap(args):
         demos = None
 
     save_root = None
-    for ind in trange(len(demos)):
-    # for ind in range(len(demos)):
+    # for ind in trange(len(demos)):
+    for ind in range(len(demos)):
         ep = demos[ind]
         # print(colored("Playing back episode: {}".format(ep), "yellow"))
 
@@ -107,76 +136,134 @@ def convert_to_ply_with_colmap(args):
         # camera_name = "robot0_eye_in_hand_image"
         camera_name = args.camera_name
         imgs = f["data/{}/obs/{}".format(ep, camera_name)]
+        depths = f["data/{}/obs/{}".format(ep, camera_name.replace("image", "depth"))]
 
         Ks = f["data/{}/info/{}_K".format(ep, camera_name)]   # intrinsic
         Rs = f["data/{}/info/{}_R".format(ep, camera_name)]   # extrinsic
-
-        # NOTE: visualize and save the camera poses and its orientations defined by rotation matrix
-        if ind == 0:
-            from camera_utils.camera_pose_visualizer import CameraPoseVisualizer
-            import matplotlib.pyplot as plt
-            from scipy.spatial.transform import Rotation as R
-            # bound_x = [np.min(Rs[:, 0, 3]), np.max(Rs[:, 0, 3])]
-            # bound_y = [np.min(Rs[:, 1, 3]), np.max(Rs[:, 1, 3])]
-            # bound_z = [np.min(Rs[:, 2, 3]), np.max(Rs[:, 2, 3])]
-            # visualizer = CameraPoseVisualizer(bound_x, bound_y, bound_z)
-            visualizer = CameraPoseVisualizer([-5, 5], [-5, 5], [0, 5])
-            
-            for i in range(0, imgs.shape[0], args.skip_interval):
-                visualizer.extrinsic2pyramid(Rs[i], 'c', focal_len_scaled=1, aspect_ratio=0.3)
-
-            # NOTE: convert to euler for debugging
-            # rotation = R.from_matrix(Rs[0][:3, :3])
-            # rotation = rotation.as_euler('zyx', degrees=True)
-            # print("Euler angles: {}".format(rotation))
-            # Rt = np.eye(4)
-            # Rt[:3, :3] = Rs[0][:3, :3] 
-            # visualizer.extrinsic2pyramid(Rt, 'c', focal_len_scaled=1, aspect_ratio=0.3)
-
-            # NOTE: test the visualizer
-            # visualizer = CameraPoseVisualizer([-5, 5], [-5, 5], [0, 5])
-            # euler_angles = np.array([0, 60, 0])
-            # rotation = R.from_euler('zyx', euler_angles, degrees=True)
-            # rotation = rotation.as_matrix()
-            # R = np.eye(4)
-            # R[:3, :3] = rotation
-            # print(R)
-            # visualizer.extrinsic2pyramid(R, 'c', focal_len_scaled=1, aspect_ratio=0.3)
-
-            visualizer.show()
-            plt.savefig(os.path.join(save_root, "camera_poses.png"))
-            cprint("Camera poses saved to: {}".format(os.path.join(save_root, "camera_poses.png")), "green")
+        znears = f["data/{}/info/{}_znear".format(ep, camera_name)]
+        zfars = f["data/{}/info/{}_zfar".format(ep, camera_name)]
 
         # save_folder = os.path.join(save_root, "{}".format(camera_name), "{}".format(ep))
         save_folder = os.path.join(save_root, "input")
+        os.makedirs(save_folder, exist_ok=True)
         cprint(f"Writing {imgs.shape[0]} images to {save_folder}", "yellow")
+
+        depth_folder = save_folder.replace("input", "depth_debug")
+        os.makedirs(depth_folder, exist_ok=True)
+        cprint(f"Writing depth images to {depth_folder}", "yellow")
 
         sparse_folder = os.path.join(save_root, "sparse/0")
         os.makedirs(sparse_folder, exist_ok=True)
         images_file = os.path.join(sparse_folder, "images.txt")
+
+        # mask
+        if args.mask_path is not None:
+            gripper_mask = imageio.imread(args.mask_path)
+            # gripper_mask = np.flip(gripper_mask, axis=0)
+            gripper_mask = gripper_mask.astype(bool)
         
+        # print(gripper_mask)
+
         with open(images_file, 'a') as f2:
             f2.write("# Image list with two lines of data per image:\n")
             f2.write("#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n")
             f2.write("#   POINTS2D[] as (X, Y, POINT3D_ID)\n")
             f2.write("# Number of images: {}, mean observations per image: {}\n".format(imgs.shape[0], imgs.shape[0]))
 
-        for i in range(0, imgs.shape[0], args.skip_interval):
+        # NOTE: visualize and save the camera poses and its orientations defined by rotation matrix
+        # from camera_utils.camera_pose_visualizer import CameraPoseVisualizer
+        # import matplotlib.pyplot as plt
+        # from scipy.spatial.transform import Rotation as R
+        # visualizer = CameraPoseVisualizer([-5, 5], [-5, 5], [0, 5])
+
+        aggr_pcd = o3d.geometry.PointCloud()
+        # for i in range(0, imgs.shape[0], args.skip_interval):
+        for i in trange(0, imgs.shape[0], args.skip_interval):
             img = imgs[i]
-            os.makedirs(save_folder, exist_ok=True)
+            depth = np.squeeze(depths[i], axis=-1)
+
+            # NOTE: IMPORTANT: flip image
+            depth = np.flip(depth, axis=0)
+
+            znear = znears[i]
+            zfar = zfars[i]
+
+            # Make sure that depth values are normalized
+            assert np.all(depth >= 0.0) and np.all(depth <= 1.0)
+            depth = znear / (1.0 - depth * (1.0 - znear / zfar))
+
+            # Write image
             img_path = os.path.join(save_folder, "{}.png".format(i))
             imageio.imwrite(img_path, img)
 
+            # Write depth image for debugging
+            depth_path = os.path.join(depth_folder, "{}_depth.png".format(i))
+
+            # fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+            # ax[0].imshow(img)
+            # ax[0].set_title('Image')
+            # ax[0].axis('off')  
+            # depth_map_display = ax[1].imshow(depth, cmap='viridis')
+            # ax[1].set_title('Depth Map')
+            # ax[1].axis('off')  
+            # fig.colorbar(depth_map_display, ax=ax[1], fraction=0.046, pad=0.04)
+            # plt.savefig(depth_path)
+
             # write extrinsics to txt
-
-            # Collect image data for sparse model
             qw, qx, qy, qz, tx, ty, tz = parse_camera_extrinsic(Rs[i])
-
-            # Write image data
-
             with open(images_file, 'a') as f2:
                 f2.write("{} {} {} {} {} {} {} {} {} {}\n".format(i+1, qw, qx, qy, qz, tx, ty, tz, 1, "{}.png".format(i)))
                 f2.write("\n")
+
+            # visualizer.extrinsic2pyramid(Rs[i], 'c', focal_len_scaled=1, aspect_ratio=0.3)
+
+            # Compute point cloud
+            color = img / 255.0
+
+            K = Ks[i]
+            R = Rs[i]
+            cam_param = [K[0,0], K[1,1], K[0,2], K[1,2]] # fx, fy, cx, cy
+
+            # mask = (depth > 0) & (depth < 1.5)
+            if args.mask_path is not None:
+                mask = (depth > 0) & (depth < 3.0) & gripper_mask
+            else:
+                mask = (depth > 0) & (depth < 3.0)
+            pcd = depth2fgpcd(depth, mask, cam_param)
+            
+            # pose = np.linalg.inv(R)   # NOTE: wrong
+            pose = R
+            
+            trans_pcd = pose @ np.concatenate([pcd.T, np.ones((1, pcd.shape[0]))], axis=0)
+            trans_pcd = trans_pcd[:3, :].T
+            
+            pcd_o3d = np2o3d(trans_pcd, color[mask])
+            # downsample = False
+            downsample = True
+            if downsample:
+                pcd_o3d = pcd_o3d.uniform_down_sample(every_k_points=5)    # 512*512*(ratio=0.05)=13107
+
+            aggr_pcd += pcd_o3d
+        
+        if downsample:
+            radius = 0.02
+            aggr_pcd = aggr_pcd.voxel_down_sample(radius)
+
+        # remove outlier
+        aggr_pcd, ind = aggr_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        aggr_pcd, ind = aggr_pcd.remove_radius_outlier(nb_points=20, radius=0.1)
+
+        # save pcd for visualization
+        pcd_file = os.path.join(save_root, "sparse_pc.ply")
+        o3d.io.write_point_cloud(pcd_file, aggr_pcd)
+        # how much point we use
+        point_num = len(np.asarray(aggr_pcd.points))
+        cprint("Saving point cloud of {} points to: {}".format(point_num, pcd_file), "green")
+
+        # show camera pose trajectory
+        # visualizer.show()
+        # plt.savefig(os.path.join(save_root, "camera_poses.png"))
+        # cprint("Camera poses saved to: {}".format(os.path.join(save_root, "camera_poses.png")), "green")
 
     # Write camera parameters
     camera_model = 'SIMPLE_PINHOLE'
@@ -192,9 +279,20 @@ def convert_to_ply_with_colmap(args):
         f1.write("# Number of cameras: 1\n")
         f1.write("{} {} {} {} {}\n".format(1, camera_model, width, height, ' '.join(map(str, [fx, cx, cy]))))
 
-    # Write empty points3D.txt
+    # Write points3D.txt
     points3D_file = os.path.join(sparse_folder, "points3D.txt")
-    open(points3D_file, 'w').close()
+    # open(points3D_file, 'w').close()
+    with open(points3D_file, 'a') as f3:
+        f3.write("# 3D point list with one line of data per point:\n")
+        f3.write("#   POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)\n")
+        f3.write("# Number of points: {}\n".format(point_num))
+
+    for i in range(point_num):
+        pcd = np.asarray(aggr_pcd.points)
+        color = np.asarray(aggr_pcd.colors)
+        with open(points3D_file, 'a') as f3:
+            f3.write("{} {} {} {} {} {} {} {} {}\n".format(i+1, pcd[i, 0], pcd[i, 1], pcd[i, 2], img[i, 0], img[i, 1], img[i, 2], 0, ""))
+            f3.write("\n")
 
     f.close()
     cprint("Saving to: {}".format(save_root), "green")
@@ -382,6 +480,14 @@ if __name__ == "__main__":
         action='store_true',
         help="log additional information",
     )
+
+    parser.add_argument(
+        "--mask_path",
+        type=str,
+        default=None,
+        help="(optional) mask out the gripper",
+    )
+
     parser.add_argument("--task", type=str, default="NavigateKitchen", help="task (choose among 100+ tasks)")
 
     args = parser.parse_args()

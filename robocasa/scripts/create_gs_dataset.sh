@@ -26,7 +26,7 @@ echo "Done extracting image observations from robomimic dataset."
 # 3. Convert h5py demo data to Gaussian Splatting format (default: navigate data)
 echo "Converting h5py demo data to Gaussian Splatting format..."
 
-python robocasa/scripts/convert_to_gaussian_format.py --dataset /mnt/disk_1/guanxing/robocasa/robocasa/models/assets/demonstrations_private/take_a_walk/demo_im512.hdf5
+python robocasa/scripts/convert_to_gaussian_format.py --dataset /mnt/disk_1/guanxing/robocasa/robocasa/models/assets/demonstrations_private/take_a_walk/demo_im512.hdf5 --skip_interval 1 --mask_path /mnt/disk_1/guanxing/segment-anything-2/notebooks/r_0_l_0_mask_rev.png
 
 echo "Done converting h5py demo data to Gaussian Splatting format."
 
