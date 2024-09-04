@@ -2,16 +2,19 @@ import argparse
 import json
 import time
 from collections import OrderedDict
-from termcolor import colored
 
 import robosuite
 from robosuite import load_controller_config
 from robocasa.scripts.collect_demos import collect_human_trajectory, collect_full_scan
 from robosuite.wrappers import VisualizationWrapper
+from termcolor import colored
 
-from robocasa.models.arenas.layout_builder import STYLES
+from robocasa.scripts.collect_demos import collect_human_trajectory
 
-def choose_option(options, option_name, show_keys=False, default=None, default_message=None):
+
+def choose_option(
+    options, option_name, show_keys=False, default=None, default_message=None
+):
     """
     Prints out environment options, and returns the selected env_name choice
 
@@ -36,10 +39,12 @@ def choose_option(options, option_name, show_keys=False, default=None, default_m
             print("[{}] {}".format(i, v))
     print()
     try:
-        s = input("Choose an option 0 to {}, or any other key for default ({}): ".format(
-            len(options) - 1,
-            default_message,
-        ))
+        s = input(
+            "Choose an option 0 to {}, or any other key for default ({}): ".format(
+                len(options) - 1,
+                default_message,
+            )
+        )
         # parse input into a number within range
         k = min(max(int(s), 0), len(options) - 1)
         choice = list(options.keys())[k]
@@ -60,7 +65,9 @@ if __name__ == "__main__":
     parser.add_argument("--task", type=str, help="task (choose among 100+ tasks)")
     parser.add_argument("--layout", type=int, help="kitchen layout (choose number 0-9)")
     parser.add_argument("--style", type=int, help="kitchen style (choose number 0-11)")
-    parser.add_argument("--device", type=str, default="keyboard", choices=["keyboard", "spacemouse"])
+    parser.add_argument(
+        "--device", type=str, default="keyboard", choices=["keyboard", "spacemouse"]
+    )
     args = parser.parse_args()
 
 
@@ -90,7 +97,9 @@ if __name__ == "__main__":
         styles[k] = STYLES[k]
 
     if args.task is None:
-        args.task = choose_option(tasks, "task", default="PnPCounterToCab", show_keys=True)
+        args.task = choose_option(
+            tasks, "task", default="PnPCounterToCab", show_keys=True
+        )
 
     # Create argument configuration
     config = {
@@ -103,11 +112,11 @@ if __name__ == "__main__":
     }
 
     args.renderer = "mjviewer"
-    
+
     print(colored(f"Initializing environment...", "yellow"))
     env = robosuite.make(
         **config,
-        has_renderer=(args.renderer != "mjviewer"),
+        has_renderer=True,
         has_offscreen_renderer=False,
         render_camera="robot0_eye_in_hand",   # robot0_agentview_center, robot0_frontview, robot0_eye_in_hand
         ignore_done=True,
@@ -126,11 +135,12 @@ if __name__ == "__main__":
     if args.device == "keyboard":
         from robosuite.devices import Keyboard
 
-        device = Keyboard(pos_sensitivity=4.0, rot_sensitivity=4.0)
+        device = Keyboard(env=env, pos_sensitivity=4.0, rot_sensitivity=4.0)
     elif args.device == "spacemouse":
         from robosuite.devices import SpaceMouse
 
         device = SpaceMouse(
+            env=env,
             pos_sensitivity=4.0,
             rot_sensitivity=4.0,
         )
@@ -140,7 +150,12 @@ if __name__ == "__main__":
     # collect demonstrations
     while True:
         ep_directory, discard_traj = collect_human_trajectory(
-            env, device, "right", "single-arm-opposed", mirror_actions=True, render=(args.renderer != "mjviewer"),
+            env,
+            device,
+            "right",
+            "single-arm-opposed",
+            mirror_actions=True,
+            render=(args.renderer != "mjviewer"),
             max_fr=30,
         )
         # ep_directory, discard_traj = collect_full_scan(

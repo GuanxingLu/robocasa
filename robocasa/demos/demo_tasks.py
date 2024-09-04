@@ -1,18 +1,23 @@
 import argparse
 import json
+import os
 import time
 from collections import OrderedDict
-import os
 
-import robocasa
 import robosuite
 from termcolor import colored
-from robocasa.scripts.playback_dataset import playback_dataset
-from robocasa.scripts.download_kitchen_assets import download_and_extract_zip
-from robocasa.scripts.download_datasets import download_datasets
-from robocasa.utils.dataset_registry import get_ds_path
 
-def choose_option(options, option_name, show_keys=False, default=None, default_message=None):
+import robocasa
+from robocasa.scripts.download_datasets import download_datasets
+from robocasa.scripts.download_kitchen_assets import download_and_extract_zip
+from robocasa.scripts.playback_dataset import playback_dataset
+from robocasa.utils.dataset_registry import get_ds_path
+import os
+
+
+def choose_option(
+    options, option_name, show_keys=False, default=None, default_message=None
+):
     """
     Prints out environment options, and returns the selected env_name choice
 
@@ -37,10 +42,12 @@ def choose_option(options, option_name, show_keys=False, default=None, default_m
             print("[{}] {}".format(i, v))
     print()
     try:
-        s = input("Choose an option 0 to {}, or any other key for default ({}): ".format(
-            len(options) - 1,
-            default_message,
-        ))
+        s = input(
+            "Choose an option 0 to {}, or any other key for default ({}): ".format(
+                len(options) - 1,
+                default_message,
+            )
+        )
         # parse input into a number within range
         k = min(max(int(s), 0), len(options) - 1)
         choice = list(options.keys())[k]
@@ -58,9 +65,21 @@ def choose_option(options, option_name, show_keys=False, default=None, default_m
 if __name__ == "__main__":
     # Arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, help="task (choose among 100+ tasks)")
+    parser.add_argument(
+        "--task", type=str, help="task (must be task with demos collected already)"
+    )
+    parser.add_argument(
+        "--render_offscreen",
+        action="store_true",
+        help="off-screen rendering",
+    )
+    parser.add_argument(
+        "--video_path",
+        type=str,
+        default="/tmp/robocasa_demo_tasks",
+        help="path to video folder for offscreen rendering.",
+    )
     args = parser.parse_args()
-
 
     tasks = OrderedDict([
         ("PnPCounterToCab", "pick and place from counter to cabinet"),
@@ -94,14 +113,19 @@ if __name__ == "__main__":
 
         if os.path.exists(dataset) is False:
             # download dataset files
-            print(colored("Unable to find dataset locally. Downloading...", color="yellow"))
+            print(
+                colored(
+                    "Unable to find dataset locally. Downloading...", color="yellow"
+                )
+            )
             download_datasets(tasks=[task], ds_types=["human_raw"])
 
-        parser = argparse.ArgumentParser()
+        parser = argparse.Namespace()
         parser.dataset = dataset
         parser.video_path = None    # save to dataset path by default
         parser.render = True
         parser.use_actions = False
+        parser.use_abs_actions = False
         parser.render_image_names = ["robot0_agentview_center"]
         parser.use_obs = False
         # parser.n = 1  # control the number of episodes
